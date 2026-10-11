@@ -13,18 +13,21 @@ Originally built to create framed wall art product mockups from print designs (w
 
 - Browse to select input and output folders
 - Write any prompt — or use the built-in default
-- **Two providers** — switch between Google Gemini and OpenAI from a single dropdown; size/quality controls swap automatically
-- **Prompt sets** — group multiple prompts together and run every image through all of them in one batch
-- **Two run modes** (Gemini only):
-  - **Real-time** — processes images one by one with live progress and ETA
-  - **Batch (50% off)** — submits all work as a single async job via the [Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-api), with higher rate limits and half the cost
-- Choose model, aspect ratio / size, and output resolution / quality
-- Progress bar, real-time log, and estimated time remaining
+- **Two providers** — switch between Google Gemini and OpenAI from a single dropdown; size/quality controls only offer what the selected model supports
+- **Prompt sets** — group multiple prompts together and run every image through all of them in one go
+- **`{filename}` placeholder** — replaced in each prompt with the image's file name
+- **Reference images** — optional extra images (e.g. a room scene) sent with every request, so a whole product line gets consistent mockups
+- **Test 1 image** — try your prompt(s) on a single image before paying for a whole folder
+- **Parallel requests** — run up to 6 requests at once (real-time mode); a shared pacer backs every worker off together when the API rate-limits
+- **Two run modes** (both providers, model permitting):
+  - **Real-time** — live progress, ETA, running spend, and a thumbnail of the latest result
+  - **Batch (50% off)** — submits all work as one async job via the [Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-api) or [OpenAI Batch API](https://developers.openai.com/api/docs/guides/batch)
+- **Output format** — PNG, JPEG or WebP, plus up to 4 **variations** per prompt
+- **Cost estimate** before each run, and **actual spend** (from the APIs' usage data) as it runs
 - Remembers your folders, provider, and settings between sessions
-- Optional secure API key saving via the OS keychain (Windows Credential Manager / macOS Keychain / Linux Secret Service) — never stored in plaintext, with separate slots per provider so a Gemini key can't clobber an OpenAI key
-- **Cost estimate** — shows estimated cost (with batch discount if applicable) and asks for confirmation before starting
-- Skips already-processed images (with optional overwrite)
-- Handles rate limits (429) and server overload (503) automatically with exponential backoff, jitter, and a circuit breaker
+- Optional secure API key saving via the OS keychain (Windows Credential Manager / macOS Keychain / Linux Secret Service) — never stored in plaintext, with separate slots per provider
+- Skips already-processed images (with optional overwrite); output files are written atomically, so a crash never leaves a half-written image that gets skipped later
+- Handles rate limits (429) and server overload (503) automatically with exponential backoff, jitter, and a circuit breaker — and stops the run straight away if the account is out of credits
 
 ## Requirements
 
@@ -57,7 +60,7 @@ $env:GOOGLE_API_KEY = "your_gemini_key_here"
 $env:OPENAI_API_KEY = "your_openai_key_here"
 ```
 
-You can also paste the key directly into the **API Key** field in the GUI. Check **Save API key** to store it securely in your OS keychain so you don't need to re-enter it each time — it is never written to disk in plaintext. Each provider has its own keychain slot, so you can save both keys independently.
+You can also paste the key directly into the **API Key** field in the GUI. Check **Save API key** to store it securely in your OS keychain so you don't need to re-enter it each time — it is never written to disk in plaintext. Each provider has its own keychain slot, and a key you type for one provider is kept if you switch to the other.
 
 ## Usage
 
@@ -65,13 +68,14 @@ You can also paste the key directly into the **API Key** field in the GUI. Check
 python generate_mockups.py
 ```
 
-1. Enter your API key (pre-filled if the matching environment variable is set)
-2. Pick a **provider** (Gemini or OpenAI), then a **model**
-3. Set the **size / aspect ratio** and **resolution / quality** controls (these swap based on the active provider)
+1. Enter your API key (pre-filled if saved or if the matching environment variable is set)
+2. Pick a **provider** (Gemini or OpenAI), then a **model** — the hint next to it shows what it's for and what it costs
+3. Set the **image** controls: aspect ratio + resolution (Gemini) or size + quality (OpenAI)
 4. Browse to your **input folder** (containing the images to process)
 5. Browse to your **output folder** (where results will be saved)
-6. Choose a **prompt set** or write a single prompt (see below)
-7. Click **Run**
+6. Optionally set the **format**, **variations**, **parallel requests**, and **reference images**
+7. Choose a **prompt set** or write a single prompt (see below)
+8. Click **Test 1 image…** to check the result on one image, then **Run**
 
 ### Single prompt mode
 
@@ -88,21 +92,29 @@ Prompt sets let you run every image through multiple prompts in one go — usefu
 5. Click **Save Set**
 6. Select your set from the dropdown and click **Run**
 
-Output files are numbered by prompt order: `<original_name>_1.png`, `<original_name>_2.png`, etc.
+Output files are numbered by prompt order: `<original_name>_1.png`, `<original_name>_2.png`, etc. With variations, each gets a `_v1`, `_v2`… suffix. If two inputs share a name (`art.jpg` and `art.png`), the source extension is added so neither overwrites the other (`art_jpg_1.png`).
 
-You can create as many sets as you need and switch between them from the dropdown. The selected set is remembered between sessions.
+Prompt files are saved atomically and the previous version is kept as `prompt_sets.json.bak` / `prompts.json.bak`. If a prompt file can't be read at startup, the app warns you and refuses to save over it.
+
+### Reference images and `{filename}`
+
+Click **Add…** next to **References** to attach up to 10 extra images to every request — for example a room photo so every mockup uses the same scene. Your input image is always sent first, then the references in order, so you can write prompts like *"Place the artwork from the first image into the room shown in the second image."*
+
+`{filename}` anywhere in a prompt is replaced with the input image's file name (without extension).
+
+### Test 1 image
+
+**Test 1 image…** asks you to pick one image, runs it through the current prompt or prompt set in real-time, and saves the results to an `_test` subfolder of the output folder (always overwriting), so a later full run doesn't skip them.
 
 ### Run modes
 
-The **Run mode** dropdown lets you choose how images are processed. Batch mode is **Gemini-only** — when OpenAI is selected, the dropdown locks to Real-time.
-
 #### Real-time (default)
 
-Images are processed one at a time. You see live progress, per-image status, and an estimated time remaining. Best for smaller batches or when you want to monitor results as they come in.
+Requests run in parallel (set **Parallel requests**, 1–6). You see live progress, an ETA, actual spend so far, and a thumbnail of the latest result (click it to open the file). If the API rate-limits, every worker pauses together; if the account runs out of credits, the run stops immediately instead of retrying each image.
 
-#### Batch (50% off) — Gemini only
+#### Batch (50% off)
 
-All work is submitted as a single asynchronous job via the [Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-api). The app uploads your images, submits the job, then polls until it completes and downloads the results.
+All work is submitted as a single asynchronous job. The app uploads your images, submits the job, then polls until it completes and downloads the results. Available for every Gemini model and for `gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` on OpenAI; the dropdown locks to Real-time for models without Batch support.
 
 **Advantages:**
 - **50% cheaper** — batch pricing is half the real-time rate
@@ -110,39 +122,37 @@ All work is submitted as a single asynchronous job via the [Gemini Batch API](ht
 - **Fire and forget** — submit a large job and let it run
 
 **Trade-offs:**
-- No per-image progress during processing — you see the job status (pending → running → succeeded) but not individual images
-- Turnaround is variable — usually minutes, but Google targets up to 24 hours
+- No per-image progress during processing — you see the job status, not individual images
+- Turnaround is variable — usually minutes, but up to 24 hours
 - Results arrive all at once when the job completes
 
-**Resuming a batch job:**
-Once a batch job is submitted, the job state is saved locally. You can safely close the app, restart your computer, or come back later — click **Resume Batch** to reconnect to the job, poll for completion, and download results. The Resume button appears automatically on startup if a pending job is detected.
-
-The batch discount is reflected in the cost estimate confirmation dialog.
-
-> **Note:** OpenAI does not currently publish a Batch API for image generation, so OpenAI runs are always real-time.
+**Stopping and resuming:**
+Once a batch job is submitted, its state is saved locally. You can safely close the app, restart your computer, or come back later — click **Resume Batch** to reconnect and download results. Pressing **Stop** while a batch is running asks whether to **stop watching** (the job keeps running; resume later) or **cancel the job** on the server. The saved state is only cleared once the results are downloaded or the job has ended, so a dropped connection never loses a paid-for job.
 
 ## Models & pricing
 
 ### Gemini
 
-| Model | Speed | Resolutions | Cost per image (approx.) |
+| Model | Notes | Resolutions | Cost per image |
 |---|---|---|---|
-| `gemini-3-pro-image-preview` | Slower | 1K, 2K, 4K | $0.13 (1K/2K) · $0.24 (4K) |
-| `gemini-3.1-flash-image-preview` | Fast | 512, 1K, 2K, 4K | $0.045–$0.151 |
-| `gemini-2.5-flash-image` | Fastest | 1K, 2K | $0.039 |
+| `gemini-nano-banana-2.1` | Newest (Nano Banana 2.1), fast — recommended | 1K, 2K, 4K | $0.034 / $0.050 / $0.113 |
+| `gemini-3-pro-image` | Nano Banana Pro — highest quality, slower | 1K, 2K, 4K | $0.134 (1K/2K) · $0.24 (4K) |
+| `gemini-3.1-flash-image` | Nano Banana 2 — previous generation | 512, 1K, 2K, 4K | $0.045–$0.151 |
+| `gemini-3.1-flash-lite-image` | Nano Banana 2 Lite — fastest | 1K | $0.034 |
 
-All models support 10 standard aspect ratios (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `4:5`, `5:4`, `2:3`, `3:2`, `21:9`). The `gemini-3.1-flash-image-preview` model also supports ultra-wide/tall ratios: `1:4`, `4:1`, `1:8`, `8:1`.
+All support 10 standard aspect ratios (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `4:5`, `5:4`, `2:3`, `3:2`, `21:9`); Nano Banana 2 and 2.1 also support `1:4`, `4:1`, `1:8`, `8:1`. Batch mode halves these prices.
 
-See [Google AI pricing](https://ai.google.dev/gemini-api/docs/pricing) for current rates.
+The old `-preview` model IDs have been retired; saved settings that use them are switched to the replacement automatically. See [Google AI pricing](https://ai.google.dev/gemini-api/docs/pricing) for current rates.
 
 ### OpenAI
 
-| Model | Notes |
-|---|---|
-| `gpt-image-2` | Latest, highest quality. Pricing varies by size + quality. |
-| `gpt-image-1.5` | Previous generation. |
-| `gpt-image-1` | Original gpt-image model. |
-| `gpt-image-1-mini` | Cheapest variant. |
+| Model | Notes | Batch |
+|---|---|---|
+| `gpt-image-2.5-sunburst` | Most capable — best when the artwork must stay exact | ✓ |
+| `gpt-image-2.5-flare` | Faster everyday generation | ✓ |
+| `gpt-image-2` | Previous generation | — |
+
+`gpt-image-1` (shuts down Oct 23, 2026), `gpt-image-1.5` and `gpt-image-1-mini` (Dec 1, 2026) are no longer listed; you can still type them as a custom model ID until then, and the app shows a warning.
 
 `gpt-image-2` cost per image at the common sizes:
 
@@ -152,23 +162,30 @@ See [Google AI pricing](https://ai.google.dev/gemini-api/docs/pricing) for curre
 | `1024x1536` | $0.005 | $0.041 | $0.165 |
 | `1536x1024` | $0.005 | $0.041 | $0.165 |
 
-Sizes: `auto`, `1024x1024`, `1024x1536`, `1536x1024`, `2048x2048`, `3840x2160`. Quality: `auto`, `low`, `medium`, `high`.
+The 2.5 models are billed by tokens ($8/1M image input, $30/1M image output) and OpenAI hasn't published a per-image table yet, so the estimate shows "unknown" — the running spend (computed from each response's usage data) shows what you're actually paying. OpenAI also bills for the input image(s) sent with each edit, which the up-front estimate doesn't include.
+
+**Size:** pick a preset or type any `WIDTHxHEIGHT` — both edges multiples of 16, max 3840 px, no wider than 3:1, between 655,360 and 8,294,400 total pixels. **Quality:** `auto`, `low`, `medium`, `high`, plus `xhigh` and `max` on the 2.5 models.
 
 See [OpenAI image-generation docs](https://developers.openai.com/api/docs/guides/image-generation) for current rates.
 
-Before each run, the tool shows a **cost estimate** based on the number of images, prompts, model, and size/quality — and asks you to confirm before proceeding. Batch mode applies a 50% discount to Gemini estimates.
+Before each run, the tool shows a **cost estimate** based on the number of images still to generate, model, and size/quality — and asks you to confirm. When quality or size is `auto`, the estimate is labelled as an upper bound.
+
+### Custom model IDs
+
+The model box is editable — type any model ID and it's remembered between sessions. Custom models get every size/quality option and no price estimate.
 
 ## Tips
 
 - **Aspect ratio / size** — set this to match what you want in the output, not the input. The model will crop/compose accordingly.
 - **Resolution / quality** — `1K` (Gemini) or `1024x1024` low/medium (OpenAI) is fine for web use. Step up for print or large displays. Higher resolutions/qualities cost more and take longer.
 - **Prompt** — be specific about style, framing, lighting, and context. The model uses both your image and the prompt together.
-- **Rate limits / 503 errors** — the tool retries automatically with exponential backoff on both 429 (rate limit) and 503 (server overload) errors. If 5 consecutive items fail with 503 after all retries, the run stops automatically (circuit breaker). For large Gemini batches, consider using **Batch mode** which has higher rate limits.
-- **Batch mode for large Gemini runs** — if you're processing hundreds of images, Batch mode avoids rate-limit issues entirely and costs 50% less. Not available for OpenAI.
+- **Failed images** — re-run with *Overwrite* unticked to retry only what failed; everything already saved is skipped.
+- **Refusals** — if a model declines or a safety filter blocks an image, the log shows the reason and any text the model returned.
+- **Rate limits / 503 errors** — handled automatically. If 5 consecutive items fail with 503 after all retries, the run stops (circuit breaker). For large runs, **Batch mode** avoids rate limits and costs 50% less.
 
 ## Supported input formats
 
-`.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`, `.tiff`, `.gif`
+`.jpg`, `.jpeg`, `.png`, `.webp` are sent as-is. `.bmp`, `.tif`/`.tiff` and `.gif` (first frame) are converted to PNG in memory first. Images larger than 15 MB or 4096 px on the long edge are downscaled before sending.
 
 ## License
 

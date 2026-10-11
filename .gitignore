@@ -25,6 +25,9 @@ config.json
 prompts.json
 prompt_sets.json
 batch_state.json
+# Atomic-write temp files and backups of the above
+*.json.tmp
+*.json.bak
 
 # Generated output images (don't accidentally commit API results)
 output/
